@@ -264,13 +264,79 @@ int update_breathing_led(bool breathing)
     }
 }
 
+// int main()
+// {
+//     // 初始化整块板子
+//     init();
+
+//     // 初始化串口通信，设置波特率为 115200
+//     Serial.begin(115200);
+
+//     // 初始化 BOARD_LED_PIN 引脚为输出模式
+//     init_led();
+
+//     // 初始化 BUTTON_PIN 引脚为输入模式，并启用上拉电阻
+//     init_button();
+
+//     // 初始化 PWM LED
+//     init_pwm_led();
+
+//     bool breathing = true; // 记录当前呼吸状态
+
+//     while (true)
+//     {
+
+//         if (check_button_pressed())
+//         {
+//             static bool led_on = false;      // 记录 LED 当前状态
+//             led_on = !led_on;                // 切换 LED 状态
+//             digitalWrite(BOARD_LED_PIN, led_on); // 根据 led_on 的值设置 BOARD_LED_PIN 引脚
+
+//             breathing = !breathing; // 切换呼吸模式状态
+//         }
+
+//         int now_brightness = update_breathing_led(breathing); // 更新呼吸灯状态
+
+//         /*
+//         printf() 函数：用于将信息输出到串口进行调试和分析，这里我们可以输出当前的亮度值来观察呼吸灯的变化。
+//         */
+//         Serial.print("Brightness: "); Serial.println(now_brightness); // 打印当前亮度值到串口进行调试
+
+//         delay(10); // 延迟
+//     }
+// }
+
+//******** ARD.C.1.5 ********//
+//引脚资源分配：单片机的引脚支持不同的功能，因此要合理分配引脚资源，避免冲突。这里我们为两个电机的控制引脚和 PWM 引脚进行了定义。
+#define MOTOR_A_IN1 7
+#define MOTOR_A_IN2 8
+#define MOTOR_B_IN1 A0
+#define MOTOR_B_IN2 A1
+#define MOTOR_PWM_A 5
+#define MOTOR_PWM_B 6
+
+void init_motor()
+{
+    // 初始化电机控制引脚
+    pinMode(MOTOR_A_IN1, OUTPUT);
+    pinMode(MOTOR_A_IN2, OUTPUT);
+    pinMode(MOTOR_B_IN1, OUTPUT);
+    pinMode(MOTOR_B_IN2, OUTPUT);
+
+    // 初始化 PWM 功能（Arduino analogWrite 自动配置 PWM 引脚）
+    pinMode(MOTOR_PWM_A, OUTPUT);
+    pinMode(MOTOR_PWM_B, OUTPUT);
+
+    // Arduino analogWrite 使用内置 PWM，无需手动配置分频和周期
+
+    analogWrite(MOTOR_PWM_A, 0); // 初始占空比为 0（电机停止）
+    analogWrite(MOTOR_PWM_B, 0); // 初始占空比为 0（电机停止）
+}
+
 int main()
 {
     // 初始化整块板子
     init();
-
-    // 初始化串口通信，设置波特率为 115200
-    Serial.begin(115200);
 
     // 初始化 BOARD_LED_PIN 引脚为输出模式
     init_led();
@@ -281,26 +347,68 @@ int main()
     // 初始化 PWM LED
     init_pwm_led();
 
-    bool breathing = true; // 记录当前呼吸状态
+    // 初始化电机控制
+    /*
+    引脚资源分配：单片机的引脚支持不同的功能，因此要合理分配引脚资源，避免冲突。
+    Arduino Uno 的 PWM 引脚为 3,5,6,9,10,11，我们将电机 PWM 分配在 5,6。
+    */
+    init_motor();
+
+    int motor_state_step = 0; // 0: 前进, 1: 后退, 2: 停止
 
     while (true)
     {
 
         if (check_button_pressed())
         {
-            static bool led_on = false;      // 记录 LED 当前状态
-            led_on = !led_on;                // 切换 LED 状态
-            digitalWrite(BOARD_LED_PIN, led_on); // 根据 led_on 的值设置 BOARD_LED_PIN 引脚
-
-            breathing = !breathing; // 切换呼吸模式状态
+            /*
+            累加去模：通过对 motor_state_step 进行累加并取模来循环切换电机状态，实现前进、后退和停止的功能。
+            */
+            motor_state_step = (motor_state_step + 1) % 3; // 循环切换状态
         }
 
-        int now_brightness = update_breathing_led(breathing); // 更新呼吸灯状态
+        if (motor_state_step == 0)
+        {
+            // 前进
+            digitalWrite(MOTOR_A_IN1, HIGH);
+            digitalWrite(MOTOR_A_IN2, LOW);
+            digitalWrite(MOTOR_B_IN1, LOW);
+            digitalWrite(MOTOR_B_IN2, HIGH);
+            analogWrite(MOTOR_PWM_A, 125); // ~50% 占空比（Arduino 范围 0-255）
+            analogWrite(MOTOR_PWM_B, 125); // ~50% 占空比
 
-        /*
-        printf() 函数：用于将信息输出到串口进行调试和分析，这里我们可以输出当前的亮度值来观察呼吸灯的变化。
-        */
-        Serial.print("Brightness: "); Serial.println(now_brightness); // 打印当前亮度值到串口进行调试
+            // 呼吸 + 常亮
+            update_breathing_led(true); // 启用呼吸灯
+            digitalWrite(BOARD_LED_PIN, HIGH); // 启用常亮
+        }
+        else if (motor_state_step == 1)
+        {
+            // 后退
+            digitalWrite(MOTOR_A_IN1, LOW);
+            digitalWrite(MOTOR_A_IN2, HIGH);
+            digitalWrite(MOTOR_B_IN1, HIGH);
+            digitalWrite(MOTOR_B_IN2, LOW);
+            analogWrite(MOTOR_PWM_A, 125); // ~50% 占空比
+            analogWrite(MOTOR_PWM_B, 125); // ~50% 占空比
+
+            // 呼吸 + 关闭
+            update_breathing_led(true); // 启用呼吸灯
+            digitalWrite(BOARD_LED_PIN, LOW); // 关闭常亮
+        }
+        else
+        {
+            // 停止
+            digitalWrite(MOTOR_A_IN1, HIGH);
+            digitalWrite(MOTOR_A_IN2, HIGH);
+            digitalWrite(MOTOR_B_IN1, HIGH);
+            digitalWrite(MOTOR_B_IN2, HIGH);
+            analogWrite(MOTOR_PWM_A, 0); // 停止电机 A
+            analogWrite(MOTOR_PWM_B, 0); // 停止电机 B
+
+            // 关闭呼吸灯和常亮
+            update_breathing_led(false); // 关闭呼吸灯
+            digitalWrite(BOARD_LED_PIN, LOW);  // 关闭常亮
+        }
 
         delay(10); // 延迟
     }
